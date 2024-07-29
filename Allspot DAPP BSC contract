@@ -1,0 +1,109 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/Counters.sol";
+
+// BEP-721 interface (same as ERC-721, but explicitly for BSC)
+interface IBEP721 is IERC721 {
+    function safeMint(address to, uint256 tokenId) external;
+}
+
+contract AllspotContract is ERC721, IBEP721, Ownable {
+    using Counters for Counters.Counter;
+    Counters.Counter private _tokenIds;
+
+    IERC20 public altToken;
+    uint256 public constant MINIMUM_ALT_BALANCE = 5000000 * 10**18; // 5M ALT tokens
+
+    struct User {
+        string companyName;
+        string tinNumber;
+        string businessAddress;
+        string productType;
+        uint256 commissionRate;
+        string paymentCurrency;
+        string signedBy;
+        string position;
+        uint256 signedDate;
+    }
+
+    struct Product {
+        string title;
+        string description;
+        uint256 moq;
+        uint256 price;
+        string incoterms;
+    }
+
+    mapping(address => User) public users;
+    mapping(uint256 => Product) public products;
+
+    event ContractSigned(address indexed user, uint256 tokenId);
+    event ProductPublished(address indexed user, uint256 productId);
+
+    constructor(address _altTokenAddress) ERC721("AllspotContract", "ASC") {
+        altToken = IERC20(_altTokenAddress);
+    }
+
+    function signContract(
+        string memory _companyName,
+        string memory _tinNumber,
+        string memory _businessAddress,
+        string memory _productType,
+        uint256 _commissionRate,
+        string memory _paymentCurrency,
+        string memory _signedBy,
+        string memory _position
+    ) external {
+        require(altToken.balanceOf(msg.sender) >= MINIMUM_ALT_BALANCE, "Insufficient ALT balance");
+        require(_commissionRate >= 200, "Commission rate must be at least 2%");
+
+        users[msg.sender] = User(
+            _companyName,
+            _tinNumber,
+            _businessAddress,
+            _productType,
+            _commissionRate,
+            _paymentCurrency,
+            _signedBy,
+            _position,
+            block.timestamp
+        );
+
+        _tokenIds.increment();
+        uint256 newTokenId = _tokenIds.current();
+        safeMint(msg.sender, newTokenId);
+
+        emit ContractSigned(msg.sender, newTokenId);
+    }
+
+    function safeMint(address to, uint256 tokenId) public override onlyOwner {
+        _safeMint(to, tokenId);
+    }
+
+    function publishProduct(
+        string memory _title,
+        string memory _description,
+        uint256 _moq,
+        uint256 _price,
+        string memory _incoterms
+    ) external {
+        require(balanceOf(msg.sender) > 0, "Must have signed a contract first");
+
+        uint256 productId = _tokenIds.current();
+        products[productId] = Product(_title, _description, _moq, _price, _incoterms);
+
+        emit ProductPublished(msg.sender, productId);
+    }
+
+    function getUserDetails(address _user) external view returns (User memory) {
+        return users[_user];
+    }
+
+    function getProductDetails(uint256 _productId) external view returns (Product memory) {
+        return products[_productId];
+    }
+}
